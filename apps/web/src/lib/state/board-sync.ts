@@ -217,21 +217,22 @@ async function goneAlready(deleting: Promise<void>): Promise<void> {
  * under another one of them goes with that one and is not sent itself: so
  * the server keeps one family, which undo brings back as it was, whichever
  * order the cards came in (one sent first would come back without its parent,
- * at the top).
+ * at the top). Which cards are under which is read as the deletion is made,
+ * once the board takes writes (`writeJoined`), and again when it is redone.
  */
 export async function deleteBoardCards(
   store: BoardStore,
   cardIds: readonly string[],
 ): Promise<void> {
   const chosen = new Set(cardIds);
-  const { byId } = store.hierarchy;
-  const uniqueIds = [...chosen].filter(
-    (cardId) => !ancestorsOf(cardId, byId).some((above) => chosen.has(above.id)),
-  );
-  if (uniqueIds.length === 0) return;
+  if (chosen.size === 0) return;
   await performBoardAction(
     store,
     async () => {
+      const { byId } = store.hierarchy;
+      const uniqueIds = [...chosen].filter(
+        (cardId) => !ancestorsOf(cardId, byId).some((above) => chosen.has(above.id)),
+      );
       const gone = new Set<string>();
       for (const cardId of uniqueIds) {
         gone.add(cardId);

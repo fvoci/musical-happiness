@@ -10,8 +10,10 @@
   stays in the bar as a button of its own until the selection goes.
 
   Where the view is narrow the three keep only their icons, and the other
-  properties and Delete go under "More". The bar then sits above the button
-  that adds a card (`--fab-room`), and above the keyboard.
+  properties and Delete go under "More": the button of a property chosen
+  there is for assistive technology alone, and its editor, closed, gives the
+  focus back to "More". The bar then sits above the button that adds a card
+  (`--fab-room`), and above the keyboard.
 
   The view draws it only while something is selected and the board may be
   edited, inside an element that is `relative` and as wide as the view. The
@@ -101,6 +103,11 @@
 
   /** The element of the bar, whose parent is the view's. */
   let wrapper = $state<HTMLElement>();
+
+  /** The button of the bar's menu, where the focus goes from an editor whose opener is not seen. */
+  function menuButton(): HTMLElement | null | undefined {
+    return wrapper?.querySelector<HTMLElement>('[data-bulk-menu]');
+  }
 
   /**
    * Lets the selection go, by ✕ or Delete. Once the bar is gone, a focus it
@@ -217,6 +224,7 @@
     {presentation}
     {startOpen}
     {opener}
+    returnFocus={() => (wide || Icon ? undefined : menuButton())}
     onChange={(value: PropertyValue | undefined) => {
       put(template, value);
     }}

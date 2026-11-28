@@ -7,7 +7,13 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { boardsToShow, embeddedBoards, RELEASE_AFTER_MS, viewsOfBoard } from '$lib/state/index.ts';
+import {
+  BackendError,
+  boardsToShow,
+  embeddedBoards,
+  RELEASE_AFTER_MS,
+  viewsOfBoard,
+} from '$lib/state/index.ts';
 
 import { loadTemplates, openFirstBoard, settle, setup } from './support.ts';
 
@@ -69,6 +75,61 @@ describe('the boards of the board views shown', () => {
     await loaded(later.store);
     expect(later.store.status).toBe('ready');
     later.release();
+  });
+
+  it('is read again when held again after its reading failed, unless the board is gone', async () => {
+    const made = await openFirstBoard(setup(await loadTemplates()));
+    const [first, second] = boardsToShow(made.workspace);
+    if (!first || !second) throw new Error('the seed has no two boards');
+    const boards = embeddedBoards(made.workspace);
+    vi.spyOn(made.workspace, 'report').mockImplementation(() => undefined);
+    made.backend.failNext('cards', new BackendError(500));
+    const failed = boards.hold(first.id);
+    await settle();
+    expect(failed.store.status).toBe('failed');
+    const again = boards.hold(first.id);
+    expect(again.store).toBe(failed.store);
+    await loaded(again.store);
+    expect(again.store.status).toBe('ready');
+
+    made.backend.failNext('cards', new BackendError(404));
+    const gone = boards.hold(second.id);
+    await settle();
+    expect([gone.store.status, gone.store.missing]).toEqual(['failed', true]);
+    const load = vi.spyOn(gone.store, 'load');
+    boards.hold(second.id);
+    expect(load).not.toHaveBeenCalled();
+  });
+
+  it('is not taken for gone by a refusal explained once it was read again', async () => {
+    const made = await openFirstBoard(setup(await loadTemplates()));
+    const [first] = boardsToShow(made.workspace);
+    if (!first) throw new Error('the seed has no board');
+    const boards = embeddedBoards(made.workspace);
+    vi.spyOn(made.workspace, 'report').mockImplementation(() => undefined);
+    let release = (): void => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const read = made.backend.container.bind(made.backend);
+    let reads = 0;
+    // The second reading of the board is the one that explains the refusal: gone, it says, late.
+    vi.spyOn(made.backend, 'container').mockImplementation(async (...args) => {
+      reads += 1;
+      if (reads !== 2) return read(...args);
+      await gate;
+      throw new BackendError(404);
+    });
+    made.backend.failNext('cards', new BackendError(403));
+    const refused = boards.hold(first.id);
+    await settle();
+    expect(refused.store.status).toBe('failed');
+    const again = boards.hold(first.id);
+    await loaded(again.store);
+    expect(again.store.status).toBe('ready');
+    release();
+    await settle();
+    expect([again.store.status, again.store.missing]).toEqual(['ready', false]);
   });
 
   it('shows what other people change on the board, by itself', async () => {

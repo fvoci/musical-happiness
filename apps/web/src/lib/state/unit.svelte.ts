@@ -200,6 +200,7 @@ export class UnitStore implements OpenHierarchyNode {
     const first = kind === 'first';
     this.#readings += 1;
     const reading = this.#readings;
+    const mark = this.comments.reactionsMark();
     try {
       const { reactions, ...detail } = await this.#read();
       if (this.#closed || reading !== this.#readings) return;
@@ -209,7 +210,7 @@ export class UnitStore implements OpenHierarchyNode {
         return;
       }
       // A reaction changes nothing of the unit: they are taken whatever its `updatedAt`.
-      this.comments.takeReactions(reactions);
+      this.comments.takeReactions(reactions, mark);
       if (!first && detail.updatedAt <= this.#readAt) return;
       this.#readAt = detail.updatedAt;
       if (!sameDocNode(detail.body, this.body)) this.body = detail.body;

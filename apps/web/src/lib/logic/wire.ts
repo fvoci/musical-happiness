@@ -18,7 +18,7 @@ export { encodeBase32 } from './base32.ts';
 import { type PropertyColor } from './property-colors.ts';
 export { DEFAULT_PROPERTY_COLOR, PROPERTY_COLORS, type PropertyColor } from './property-colors.ts';
 export * from './relations.ts';
-import { createId, type Block, type PropertyValue } from './wire-blocks.ts';
+import { createId, type PropertyValue } from './wire-blocks.ts';
 export * from './wire-blocks.ts';
 export * from './wire-patches.ts';
 
@@ -104,11 +104,6 @@ export interface ContainerPatch {
   deletedCardProperties?: string[];
   dueDatePropertyId?: string | null;
   doneWhen?: DoneRule | null;
-}
-
-export interface ContainersAndBlocks {
-  containers: Container[];
-  blocks: Block[];
 }
 
 export function createBoard(source?: Container, statusName = 'Status'): Container {

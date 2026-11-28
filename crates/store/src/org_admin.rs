@@ -623,6 +623,13 @@ pub(crate) async fn remove_workspace<'c>(
     let mut sql = scope.sql("SELECT id FROM containers WHERE workspace_id = ");
     sql.bind(Id(workspace_id)).push(" ORDER BY id");
     let containers: Vec<String> = scope.all(sql).await?;
+    // Every board, then every block of them, before the first goes: each then holds
+    // what it holds.
+    for container_id in &containers {
+        crate::containers::lock_container_for_deletion(scope, container_id).await?;
+    }
+    let ids: Vec<&str> = containers.iter().map(String::as_str).collect();
+    trash::hold_blocks_of_containers(scope, &ids).await?;
     for container_id in &containers {
         trash::delete_container(scope, container_id, "").await?;
     }

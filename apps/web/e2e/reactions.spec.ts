@@ -3,7 +3,8 @@
  * comment and a page with an emoji from the quick row, sees it pressed, and
  * takes it off; what somebody else does arrives by itself, named. At 390
  * pixels under a finger a long press on a comment opens the emoji as a sheet,
- * and every target is at least 44 pixels.
+ * and every target is at least 44 pixels; on one being written it is the
+ * browser's.
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
@@ -129,4 +130,16 @@ test('at 390 pixels a long press opens the emoji as a sheet, and the targets tak
     const size = await target.boundingBox();
     expect(Math.min(size?.width ?? 0, size?.height ?? 0)).toBeGreaterThanOrEqual(44);
   }
+
+  // While the comment is being written a long press is the browser's: its menu, and no sheet.
+  await row.locator('[data-action="edit"]').click();
+  await expect(row.getByTestId('comment-edit')).toBeVisible();
+  await row.dispatchEvent('pointerdown', { ...at, pointerId: 8, button: 0 });
+  const menuLeft = await row.evaluate((element) =>
+    element.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })),
+  );
+  expect(menuLeft).toBe(true);
+  await page.waitForTimeout(700);
+  await row.dispatchEvent('pointerup', { ...at, pointerId: 8, button: 0 });
+  await expect(page.getByRole('dialog')).toBeHidden();
 });

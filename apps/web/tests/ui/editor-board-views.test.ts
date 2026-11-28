@@ -1,19 +1,21 @@
 /**
  * Board views in the editor of a body and where a body is read: where one
  * may be put (in the document and in a toggle; not in a list, a quote, a
- * callout or a cell; ten at most), what draws it, a body that may have none
+ * callout or a cell; ten at most, however the reader's change was made), what
+ * draws it, a body that may have none
  * (a comment's, an entry's), the slash menu's entry, and a pasted address
  * of a view: a link, offered as a board view once the reader is known to
  * see it. Runs a real editor in a simulated page, without layout.
  */
 import { Editor } from '@tiptap/core';
 import { TextSelection } from '@tiptap/pm/state';
+import { ySyncPluginKey } from '@tiptap/y-tiptap';
 import type { EditorView } from '@tiptap/pm/view';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { slashEntries } from '$lib/editor/block-menu.ts';
 import { mountBoardViews, type MountBoardView } from '$lib/editor/board-view-read.ts';
-import { boardViewEntry, type BoardViewOptions } from '$lib/editor/board-view.ts';
+import { boardViewCount, boardViewEntry, type BoardViewOptions } from '$lib/editor/board-view.ts';
 import { bodyExtensions } from '$lib/editor/extensions.ts';
 import { renderBody } from '$lib/editor/render.ts';
 import { MAX_BOARD_VIEWS, toStoredDoc, validateDoc, type DocNode } from '$lib/editor/schema.ts';
@@ -122,6 +124,26 @@ describe('where a board view goes', () => {
     expect(validateDoc(doc(...ten, boardView(OTHER)))).toEqual([
       `more than ${MAX_BOARD_VIEWS} board views`,
     ]);
+  });
+
+  it(`goes past ${MAX_BOARD_VIEWS} by no change of the reader's, but by another's`, () => {
+    const ten = Array.from({ length: MAX_BOARD_VIEWS }, () => boardView(VIEW));
+    const editor = create(doc(...ten, paragraph(text('last'))));
+    const node = editor.schema.nodeFromJSON(boardView(OTHER));
+    const end = editor.state.doc.content.size;
+    // A block pasted, dropped or put in by any command of the reader's.
+    editor.view.dispatch(editor.state.tr.insert(end, node));
+    editor.commands.insertContentAt(end, boardView(OTHER));
+    expect(boardViewCount(editor.state.doc)).toBe(MAX_BOARD_VIEWS);
+    // Another's change is the shared document's.
+    editor.view.dispatch(
+      editor.state.tr.insert(end, node).setMeta(ySyncPluginKey, { isChangeOrigin: true }),
+    );
+    expect(boardViewCount(editor.state.doc)).toBe(MAX_BOARD_VIEWS + 1);
+    // A body past them still takes what the reader types.
+    caret(editor, after(editor, 'last'));
+    editor.commands.insertContent('!');
+    expect(editor.state.doc.textContent).toContain('last!');
   });
 
   it('is offered by the slash menu, which asks for the view and puts it in', async () => {
@@ -301,6 +323,24 @@ describe('a pasted address of a view', () => {
     // A choice made once the list is gone changes nothing.
     chooseOffered(typed.list.shown, 'embed');
     expect(JSON.stringify(stored(typed.editor))).not.toContain('boardView');
+  });
+
+  it('stays a link when taken as a board view in a body another filled meanwhile', async () => {
+    const nine = Array.from({ length: MAX_BOARD_VIEWS - 1 }, () => boardView(VIEW));
+    const { editor, list } = pasting(true, doc(paragraph(text('see ')), ...nine));
+    pasteText(editor, ADDRESS);
+    await settle();
+    expect(list.shown).toHaveLength(1);
+    const node = editor.schema.nodeFromJSON(boardView(OTHER));
+    editor.view.dispatch(
+      editor.state.tr
+        .insert(editor.state.doc.content.size, node)
+        .setMeta(ySyncPluginKey, { isChangeOrigin: true }),
+    );
+    expect(boardViewCount(editor.state.doc)).toBe(MAX_BOARD_VIEWS);
+    chooseOffered(list.shown, 'embed');
+    expect(editor.state.doc.textContent).toBe(`see ${ADDRESS}`);
+    expect(boardViewCount(editor.state.doc)).toBe(MAX_BOARD_VIEWS);
   });
 
   it('is not offered as a board view of a view the reader does not see', async () => {

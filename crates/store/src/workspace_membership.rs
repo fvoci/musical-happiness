@@ -295,26 +295,37 @@ async fn remove(
     scope.execute(sql).await?;
     // A workspace guest is never in `organization_members`: once removed from their last
     // workspace in this organization, they can no longer leave the organization, so wipe
-    // their time entries in it (including any active timer) to prevent orphans. Hold the
-    // user's row first to serialize with concurrent `start_time_entry` / `create_time_entry`.
+    // what they leave in it to prevent orphans: their time entries (including any active
+    // timer) and their reactions, those its trash keeps too, as a leaving takes them
+    // (`reactions::forget_user_in_organization`). Hold the user's row first to serialize
+    // with concurrent `start_time_entry` / `create_time_entry` and `add_reaction`.
     crate::users::hold_user_for_cleanup(scope, user_id).await?;
+    if !in_organization(scope, user_id).await? {
+        let mut sql = scope.sql("DELETE FROM time_entries WHERE user_id = ");
+        sql.bind(Id(user_id))
+            .push_bind(" AND org_id = ", scope.org()?);
+        scope.execute(sql).await?;
+        crate::reactions::forget_user_in_organization(scope, user_id).await?;
+    }
+    Ok(Some(MembershipChange::Done { taken_over }))
+}
+
+/// Whether `user_id` is still in the scope's organization: a member of it, or of one of
+/// its workspaces.
+async fn in_organization(scope: &mut Scope<'_>, user_id: &str) -> Result<bool, StoreError> {
     let org = scope.org()?;
-    let mut sql = scope.sql("DELETE FROM time_entries WHERE user_id = ");
+    let mut sql = scope.sql("SELECT 1 FROM organization_members WHERE user_id = ");
     sql.bind(Id(user_id))
         .push_bind(" AND org_id = ", org.clone())
-        .push(" AND NOT EXISTS (SELECT 1 FROM organization_members WHERE user_id = ")
-        .bind(Id(user_id))
-        .push_bind(" AND org_id = ", org.clone())
         .push(
-            ") AND NOT EXISTS (SELECT 1 FROM workspace_members AS wm \
-               JOIN workspaces AS w ON w.id = wm.workspace_id WHERE wm.user_id = ",
+            " UNION ALL SELECT 1 FROM workspace_members AS wm \
+             JOIN workspaces AS w ON w.id = wm.workspace_id WHERE wm.user_id = ",
         )
         .bind(Id(user_id))
         .push_bind(" AND w.org_id = ", org)
         .push(&scope.same_organization(&[("wm", "w")]))
-        .push(")");
-    scope.execute(sql).await?;
-    Ok(Some(MembershipChange::Done { taken_over }))
+        .push(" LIMIT 1");
+    scope.exists(sql).await
 }
 
 /// The members of a workspace `t` of an organization; the workspace's identifier and

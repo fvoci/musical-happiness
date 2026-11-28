@@ -6,8 +6,9 @@
  */
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { tick } from 'svelte';
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, onTestFinished, vi } from 'vitest';
 
+import { pane } from '$lib/layout/room.svelte.ts';
 import type { BoardStore } from '$lib/state/index.ts';
 import type { SeedTemplate } from '$lib/state/memory/seed.ts';
 
@@ -347,6 +348,39 @@ describe('the bar of the selection', () => {
     expect(noteOf('Gamma')).toBeUndefined();
   });
 
+  it('gives the focus back to "More" when a property chosen there is closed, its button not seen', async () => {
+    // A narrow pane: the bar keeps its icons and the rest under "More".
+    const root = document.documentElement.style;
+    root.setProperty('--container-view-row', '40rem');
+    root.fontSize = '16px';
+    pane.width = 320;
+    onTestFinished(() => {
+      root.removeProperty('--container-view-row');
+      root.fontSize = '';
+      pane.width = 0;
+    });
+    await mount();
+    await fireEvent.click(titleOf('Alpha'), { ctrlKey: true });
+    await fireEvent.click(titleOf('Gamma'), { ctrlKey: true });
+    const more = one(bar(), '[data-bulk-menu]');
+    await fireEvent.click(more);
+    const menu = await screen.findByRole('menu');
+    await fireEvent.click(within(menu).getByText('Note'));
+    const field = await waitFor(() => one(document, '[data-slot="bulk-field"] input'));
+    const opener = one(bar(), '[data-bulk-property="note"]');
+    expect(opener.classList.contains('sr-only')).toBe(true);
+    field.focus();
+    await fireEvent.click(
+      within(one(document, '[data-slot="bulk-field"]')).getByRole('button', { name: 'Clear' }),
+    );
+    await waitFor(() => {
+      expect(opener.getAttribute('aria-expanded')).toBe('false');
+    });
+    await waitFor(() => {
+      expect(document.activeElement).toBe(one(bar(), '[data-bulk-menu]'));
+    });
+  });
+
   it('gives the focus back to a selected row when ✕ lets the selection go', async () => {
     await mount();
     await fireEvent.click(titleOf('Alpha'), { ctrlKey: true });
@@ -374,6 +408,21 @@ describe('the bar of the selection', () => {
     });
     await tick();
     expect(document.activeElement).toBe(titleOf('Gamma'));
+  });
+
+  it('gives the focus to the cell that adds a row when Delete took every row', async () => {
+    await mount();
+    for (const title of ['Alpha', 'Beta', 'Gamma']) {
+      await fireEvent.click(titleOf(title), { ctrlKey: true });
+    }
+    const remove = one(bar(), '[data-bulk-delete]');
+    remove.focus();
+    await fireEvent.click(remove);
+    await waitFor(() => {
+      expect(bar()).toBeNull();
+    });
+    await tick();
+    expect(document.activeElement).toBe(one(document, '[data-cell][data-kind="add"]'));
   });
 
   it('deletes the selected rows in one step, and lets the selection go', async () => {

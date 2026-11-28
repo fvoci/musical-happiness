@@ -237,14 +237,15 @@ fn is_tag(scalar: char) -> bool {
 
 /// Whether the scalar is a pictograph an emoji is made of: the blocks of Unicode's
 /// emoji (`Extended_Pictographic`, a little wider), without the regional indicators
-/// and the skin tones, which are parts of their own.
+/// and the skin tones, which are parts of their own, and without the circled digits
+/// and the arrow among the dingbats (`❶` to `➔`), which are no emoji.
 fn is_pictograph(scalar: char) -> bool {
     const SINGLES: [char; 16] = [
         '\u{00A9}', '\u{00AE}', '\u{203C}', '\u{2049}', '\u{2122}', '\u{2139}', '\u{2328}',
         '\u{2388}', '\u{23CF}', '\u{24C2}', '\u{25B6}', '\u{25C0}', '\u{3030}', '\u{303D}',
         '\u{3297}', '\u{3299}',
     ];
-    const RANGES: [(char, char); 16] = [
+    const RANGES: [(char, char); 17] = [
         ('\u{2194}', '\u{2199}'),
         ('\u{21A9}', '\u{21AA}'),
         ('\u{231A}', '\u{231B}'),
@@ -252,7 +253,8 @@ fn is_pictograph(scalar: char) -> bool {
         ('\u{23F8}', '\u{23FA}'),
         ('\u{25AA}', '\u{25AB}'),
         ('\u{25FB}', '\u{25FE}'),
-        ('\u{2600}', '\u{27BF}'),
+        ('\u{2600}', '\u{2775}'),
+        ('\u{2795}', '\u{27BF}'),
         ('\u{2934}', '\u{2935}'),
         ('\u{2B05}', '\u{2B07}'),
         ('\u{2B1B}', '\u{2B1C}'),
@@ -316,6 +318,10 @@ mod tests {
             "🫠",
             "🏃‍➡️",
             "🏽",
+            "➕",
+            "➗",
+            "➡️",
+            "➰",
         ] {
             assert_eq!(
                 one.parse::<Emoji>().map(|emoji| emoji.to_string()),
@@ -353,6 +359,10 @@ mod tests {
             ("🏴\u{E0041}\u{E007F}", ParseEmojiError::NotAnEmoji),
             ("🏴\u{E0067}\u{E0062}\u{E007F}", ParseEmojiError::NotAnEmoji),
             ("👍\u{0301}", ParseEmojiError::NotAnEmoji),
+            // A dingbat's circled digit, and its arrow, are no emoji.
+            ("❶", ParseEmojiError::NotAnEmoji),
+            ("➓", ParseEmojiError::NotAnEmoji),
+            ("➔", ParseEmojiError::NotAnEmoji),
             ("👩🏻‍❤️‍💋‍👨🏼", ParseEmojiError::TooLong),
         ] {
             assert_eq!(text.parse::<Emoji>(), Err(error), "{text:?}");

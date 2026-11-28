@@ -196,12 +196,16 @@
       {@const author = workspace.userName(comment.createdBy) ?? m['centerPanel.unknown-user']()}
       {@const text = commentText(comment.body)}
       {@const agent = agentTokenNameOf(comment)}
+      <!-- A long press that can react takes the press; one that cannot leaves the browser's own. -->
+      {@const pressable = reactions.canReact && editing?.id !== comment.id}
       <li
         class="flex gap-3 rounded-md transition-colors data-revealed:bg-accent"
         data-comment={comment.id}
-        {@attach longPress(() => {
-          if (reactions.canReact && editing?.id !== comment.id) reacting = comment.id;
-        })}
+        {@attach pressable
+          ? longPress(() => {
+              reacting = comment.id;
+            })
+          : undefined}
       >
         <Avatar
           name={author}

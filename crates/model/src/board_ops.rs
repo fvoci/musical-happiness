@@ -342,13 +342,25 @@ pub struct BoardViewPatch {
 
 impl BoardViewPatch {
     /// Checks the shape of the patch as a request sends it: a view keeps its
-    /// `viewType`, which it is made with, whatever else is taken from it.
+    /// `viewType`, which it is made with, whatever else is taken from it or set on it.
     ///
     /// # Errors
     ///
-    /// Returns every member of `deletedFields` that names `viewType`.
+    /// Returns every member of `deletedFields` that names `viewType`, and the
+    /// `viewType` of `updatedFields` when it is null or no text.
     pub fn check_request(&self) -> Result<(), Refusals> {
         let mut refused = Refusals::new();
+        if self
+            .updated_fields
+            .get("viewType")
+            .is_some_and(|value| !value.is_string())
+        {
+            refused.refuse_at(
+                "/updatedFields/viewType",
+                RefusalReason::Invalid,
+                "a view keeps its viewType",
+            );
+        }
         for (index, field) in self.deleted_fields.iter().enumerate() {
             if field == "viewType" {
                 refused.refuse_at(
