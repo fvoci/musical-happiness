@@ -4,8 +4,7 @@ use std::collections::HashSet;
 
 use fvoci_model::{
     BlockType, Container, ContainerMember, ContainerVisibility, ContainersAndBlocks,
-    ContainersAndBlocksError, DeleteContainersAndBlocks, FileRecord, PatchContainersAndBlocks,
-    renew_containers_and_blocks_ids,
+    DeleteContainersAndBlocks, FileRecord, renew_containers_and_blocks_ids,
 };
 
 use crate::Store;
@@ -378,25 +377,6 @@ impl Store {
         .await
     }
 
-    /// Applies each board patch and each block patch of `patches` to the board or block
-    /// at the same position. Returns the patched boards and blocks, in the order of the
-    /// request.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::NotFound`] if a board or block does not exist,
-    /// [`StoreError::InvalidBlock`] if a patched block fails validation, and
-    /// [`StoreError::InvalidContainersAndBlocks`] if there are more identifiers than
-    /// patches. Nothing is changed in any of these cases.
-    pub async fn patch_containers_and_blocks(
-        &self,
-        patches: &PatchContainersAndBlocks,
-        user_id: &str,
-    ) -> Result<ContainersAndBlocks, StoreError> {
-        self.transaction(async |scope| patch_containers_and_blocks(scope, patches, user_id).await)
-            .await
-    }
-
     /// Deletes the listed boards, each with all its blocks, into the trash. The listed
     /// blocks must be blocks of those boards, and go with them.
     ///
@@ -648,41 +628,6 @@ async fn add_creator_admins(
         members.push(member);
     }
     Ok(members)
-}
-
-pub(crate) async fn patch_containers_and_blocks(
-    scope: &mut Scope<'_>,
-    patches: &PatchContainersAndBlocks,
-    user_id: &str,
-) -> Result<ContainersAndBlocks, StoreError> {
-    // Return a mismatch error below if there are fewer patches than identifiers instead of panicking.
-    // The boards that are patched and the boards of the blocks that are patched are
-    // locked in one order, before any of them is written. A block that does not exist
-    // is reported where it is patched, below.
-    let block_containers = blocks::find_container_ids(scope, &patches.block_ids).await?;
-    let to_lock = patches.container_ids.iter().chain(&block_containers);
-    containers::lock_containers(scope, to_lock.map(String::as_str)).await?;
-
-    let mut result = ContainersAndBlocks::default();
-    for (index, container_id) in patches.container_ids.iter().enumerate() {
-        let patch = patches
-            .container_patches
-            .get(index)
-            .ok_or(ContainersAndBlocksError::ContainerIdsAndPatchesMismatch)?;
-        let container = containers::patch_container(scope, container_id, patch, user_id).await?;
-        result.containers.push(container);
-    }
-    for (index, block_id) in patches.block_ids.iter().enumerate() {
-        let patch = patches
-            .block_patches
-            .get(index)
-            .ok_or(ContainersAndBlocksError::BlockIdsAndPatchesMismatch)?;
-        let telling = Telling::of(scope);
-        let block =
-            blocks::patch_block(scope, block_id, patch, user_id, BodyWrite::Whole, telling).await?;
-        result.blocks.push(block);
-    }
-    Ok(result)
 }
 
 pub(crate) async fn delete_containers_and_blocks(

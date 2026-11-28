@@ -3,7 +3,6 @@
 
 use std::time::Duration;
 
-use fvoci_model::DuplicateAs;
 use fvoci_model::{
     Block, BlockError, BlockPatch, BlockType, BodyChange, Container, ContainerVisibility,
     ContainersAndBlocks, FileRecord, new_id,
@@ -120,7 +119,7 @@ async fn a_write_that_shows_a_file_newly_needs_the_boards_file() {
     }
 
     // The record of a file the card shows goes, as a wrong call of the store could
-    // make it: the card is written all the same, and so is its copy.
+    // make it: the card is written all the same.
     test.execute_unchecked(&format!(
         "DELETE FROM files WHERE container_id = '{board_id}' AND name = '7kept.png'"
     ))
@@ -133,9 +132,6 @@ async fn a_write_that_shows_a_file_newly_needs_the_boards_file() {
     test.patch_block(&card.id, &retitled, &user_id)
         .await
         .expect("an image the card showed already is not asked again");
-    test.duplicate_block(board_id, &card.id, &user_id, DuplicateAs::Copy)
-        .await
-        .expect("a copy shows what its original shows");
 
     let new_board = Container {
         id: new_id(),

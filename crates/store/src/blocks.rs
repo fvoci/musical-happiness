@@ -525,21 +525,6 @@ impl Store {
         .await
     }
 
-    /// Bulk lookup of distinct live `container_id`s for `block_ids` without reading
-    /// `body` or `fields`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::InvalidId`] if an identifier is invalid, or
-    /// [`StoreError::Database`] if a query fails.
-    pub async fn find_block_container_ids(
-        &self,
-        block_ids: &[String],
-    ) -> Result<Vec<String>, StoreError> {
-        self.with_conn(async |scope| find_container_ids(scope, block_ids).await)
-            .await
-    }
-
     /// Returns the identifiers of all live room-bearing blocks (`card`, `page`, `entry`,
     /// `unit`) in `container_ids` using a single index scan per chunk, without reading
     /// `body`, `fields`, or comment timestamps.

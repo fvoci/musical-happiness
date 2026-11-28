@@ -62,6 +62,7 @@ impl Telling {
         match scope.notes() {
             Noting::Named => Self::Written,
             Noting::Quietly => Self::Quiet,
+            #[cfg(feature = "test-util")]
             Noting::Nobody => Self::Nobody,
         }
     }
