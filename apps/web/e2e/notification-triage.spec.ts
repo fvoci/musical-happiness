@@ -99,8 +99,13 @@ test.describe('the notifications sheet of a phone', () => {
     await bell(page).click();
     await expect(lines(page)).toHaveCount(2);
     const menu = lines(page).first().getByTestId('notification-menu');
-    const box = await menu.boundingBox();
-    expect(box && [Math.round(box.width), Math.round(box.height)]).toEqual([44, 44]);
+    // Its size once the sheet has opened: it zooms in from 95 percent (`zoom-in-95`).
+    await expect
+      .poll(async () => {
+        const box = await menu.boundingBox();
+        return box && [Math.round(box.width), Math.round(box.height)];
+      })
+      .toEqual([44, 44]);
 
     const line = lines(page).first();
     const at = await line.boundingBox();
