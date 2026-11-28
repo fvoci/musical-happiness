@@ -1,7 +1,7 @@
 <!--
   The ★ of a board, a card, a page or a unit, as the reader's stars answer it:
   not starred, starred, and a press that switches it; nothing until the stars
-  are read.
+  are read, and the titles alone.
 -->
 <script lang="ts">
   import FavoriteToggle from '$lib/components/favorite-toggle/FavoriteToggle.svelte';
@@ -23,7 +23,14 @@
   };
 </script>
 
-<div class="flex items-center gap-3" data-testid="favorite-samples">
-  <FavoriteToggle {stars} targetId="plain" />
-  <FavoriteToggle {stars} targetId="starred" />
+<!-- Each ★ beside the title it stands at, as at the top bar: with none, the title alone. -->
+<div class="flex flex-col gap-2" data-testid="favorite-samples">
+  <div class="flex items-center gap-1.5">
+    <span class="text-base font-semibold">Road map · 로드맵</span>
+    <FavoriteToggle {stars} targetId="plain" />
+  </div>
+  <div class="flex items-center gap-1.5">
+    <span class="text-base font-semibold">Release checklist · 출시 점검</span>
+    <FavoriteToggle {stars} targetId="starred" />
+  </div>
 </div>

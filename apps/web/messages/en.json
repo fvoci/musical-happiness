@@ -2093,6 +2093,8 @@
   "course_unit_watching": "Watching this unit",
   "watch_label": "Watch",
   "favorite_toggle": "Favorite",
+  "favorite_add": "Add to favorites",
+  "favorite_remove": "Remove from favorites",
   "favorites_section": "Favorites",
   "favorites_search": "Favorites",
   "favorites_recent": "Recently opened",

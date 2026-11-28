@@ -2093,6 +2093,8 @@
   "course_unit_watching": "이 단원을 지켜보는 중",
   "watch_label": "지켜보기",
   "favorite_toggle": "즐겨찾기",
+  "favorite_add": "즐겨찾기에 추가",
+  "favorite_remove": "즐겨찾기에서 빼기",
   "favorites_section": "즐겨찾기",
   "favorites_search": "즐겨찾기",
   "favorites_recent": "최근 연 항목",

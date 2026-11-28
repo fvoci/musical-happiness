@@ -37,6 +37,7 @@
     type Category,
     type SidebarCategory,
     type Workspace,
+    workspaceFavorites,
   } from '$lib/state/index.ts';
 
   import { namedAs, shownTitle } from './shown-title.ts';
@@ -168,6 +169,7 @@
     onTemplateFromBoard,
     onDuplicateContainer,
     onCopyToWorkspace,
+    stars: workspaceFavorites(workspace),
   });
 
   const sortable = new Sortable({
